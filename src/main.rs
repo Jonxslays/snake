@@ -250,8 +250,8 @@ fn show_end_game_text(mut commands: Commands, status: &GameStatus, asset_server:
             text: Text::with_section(
                 message,
                 TextStyle {
-                    font: asset_server.load("fonts/FiraSans-Bold.ttf"),
-                    font_size: 65.0,
+                    font: asset_server.load("fonts/FiraSans-Regular.ttf"),
+                    font_size: 40.0,
                     color,
                 },
                 TextAlignment {
