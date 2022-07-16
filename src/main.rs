@@ -113,12 +113,24 @@ fn score_update_system(
     }
 }
 
-fn update_game_status(mut query: Query<(&mut GameStatus, &RenderedFood, &DevouredFood)>) {
-    if let Some((mut status, rendered, devoured)) = query.iter_mut().next() {
-        if devoured.0 >= FOOD_WIN_AMOUNT {
-            *status = GameStatus::Won;
-        } else if rendered.0 >= FALL_BEHIND_LOSS_AMOUNT {
-            *status = GameStatus::Lost;
+fn update_game_status(
+    mut status_query: Query<&mut GameStatus>,
+    mut query: Query<(&RenderedFood, &DevouredFood)>,
+    mut event_writer: EventWriter<GameOverEvent>,
+) {
+    if let Some((rendered, devoured)) = query.iter_mut().next() {
+        if let Some(mut status) = status_query.iter_mut().next() {
+            if devoured.0 >= FOOD_WIN_AMOUNT {
+                *status = GameStatus::Won;
+            } else if rendered.0 >= FALL_BEHIND_LOSS_AMOUNT {
+                *status = GameStatus::Lost;
+            }
+
+            if let GameStatus::InProgress = *status {
+                return;
+            }
+
+            event_writer.send(GameOverEvent((*status).clone()));
         }
 
         // println!("Rendered: {}", rendered.0);
@@ -167,8 +179,9 @@ fn food_spawner(
     query: Query<&GameStatus>,
 ) {
     let mut should_draw = true;
+
     if let Some(status) = query.iter().next() {
-        match *status {
+        match status {
             GameStatus::InProgress => (),
             _ => should_draw = false,
         }
@@ -255,7 +268,6 @@ fn show_end_game_text(mut commands: Commands, status: &GameStatus, asset_server:
 fn game_over(
     mut commands: Commands,
     mut reader: EventReader<GameOverEvent>,
-    segments_res: ResMut<SnakeBody>,
     food: Query<Entity, With<Food>>,
     segments: Query<Entity, With<SnakeBody>>,
     asset_server: Res<AssetServer>,
@@ -265,11 +277,8 @@ fn game_over(
             commands.entity(ent).despawn();
         }
 
-        for part in segments_res.0.iter() {
-            commands.entity(*part).despawn();
-        }
-
         show_end_game_text(commands, &event.0, asset_server);
+        // TODO: Add a menu to start a new game
     }
 }
 
@@ -374,8 +383,15 @@ fn snake_movement(
     mut heads: Query<(Entity, &SnakeHead)>,
     mut positions: Query<&mut Position>,
     mut last_tail_position: ResMut<LastTailPosition>,
-    mut game_over_event: EventWriter<GameOverEvent>,
+    mut event_writer: EventWriter<GameOverEvent>,
 ) {
+    if let Some(status) = game_status.iter().next() {
+        match status {
+            GameStatus::InProgress => (),
+            _ => return,
+        }
+    }
+
     if let Some((head_entity, head)) = heads.iter_mut().next() {
         let body_positions = body
             .0
@@ -387,7 +403,7 @@ fn snake_movement(
         if body_positions[1..].contains(&head_pos) {
             let mut status = game_status.iter_mut().next().unwrap();
             *status = GameStatus::Lost;
-            game_over_event.send(GameOverEvent((*status).clone()));
+            event_writer.send(GameOverEvent((*status).clone()));
         }
 
         match &head.direction {
@@ -517,7 +533,6 @@ fn main() {
         .add_system_set(
             SystemSet::new()
                 .with_run_criteria(FixedTimestep::step(3.0))
-                .with_system(update_game_status.before(food_spawner))
                 .with_system(food_spawner),
         )
         .add_system(handle_render_event.after(food_spawner))
@@ -529,7 +544,8 @@ fn main() {
                 .with_run_criteria(FixedTimestep::step(0.10))
                 .with_system(snake_movement)
                 .with_system(snake_eating.after(snake_movement))
-                .with_system(snake_growth.after(snake_eating)),
+                .with_system(snake_growth.after(snake_eating))
+                .with_system(update_game_status.after(snake_growth)),
         )
         .add_startup_system(spawn_snake)
         .add_startup_system(setup_game_state)
