@@ -505,6 +505,7 @@ fn main() {
             width: WIN_WIDTH,
             title: "Snake!".to_string(),
             resizable: false,
+            present_mode: bevy::window::PresentMode::Fifo,
             ..default()
         })
         .add_system_set_to_stage(
